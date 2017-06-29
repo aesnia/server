@@ -2,8 +2,8 @@ local Object = {}
 
 Object.__index = Object
 
-function Object:_newClass(obj)
-	setmetatable(obj, {
+function Object:newClass(type)
+	return setmetatable(type, {
 		__call = function (cls, ...)
 		local self = setmetatable({}, cls)
 		self:_init(...)
@@ -12,30 +12,17 @@ function Object:_newClass(obj)
 	})
 end
 
-
-Object:newClass(Object)
-
 function Object:_init()
-	Object.inheritance = {"Object"}
+	Object.__inheritance = {"Object"}
 end
 
 function Object:isA(str)
-	for i, v in pairs(self.inheritance) do
+	for i, v in pairs(self.__inheritance) do
 		if v == str then
 			return true
 		end
 	end
 	return false
 end
-
-function Object:_step(dt)
-
-end
-
-function Object:destroy()
-	self = nil
-	collectgarbage()
-end
-
 
 return Object

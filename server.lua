@@ -3,7 +3,17 @@
 
 ]]
 
+
+-- This script is the server-side of Aesnia Online
+
 -- constants
+require("core/getapi")
+
+
+
+
+print("Aesnia Online Server: Starting...")
+ 
 MAX_PLAYERS = 100
 PORT = 8675
 REVISION = 1
@@ -11,66 +21,29 @@ TIMEOUT = 10
 TICKS_PER_SECOND = 20
 UPDATE_INTERVAL = 60
 MAP_SIZE = 32
-CHUNK_SIZE = 32
+CHUNK_SIZE = 16
 
 local ticks = 0
+local delta = 1
 local serverReportCount = 1
 
-print("Aesnia Online - Server v"..REVISION)
 
-
-print("Loading libraries..")
+print("Loading server code..")
 
 -- libraries
-local json = require("libs/json")
+local json = require("core/libraries/json")
 local socket = require("socket")
+local login = require("core/account/attemptLogin")
+local register = require("core/account/attemptRegister")
 
-print("Loading modules...")
+print("Loading game modules...")
 
--- modules
-local loginAuth = require("code/loginservice/login")
-local registerAuth = require("code/loginservice/register")
-local serialize = require("code/map/MapSerialization")
-local mapStorage = require("code/map/MapStorage")
+require("game/PlayerHandlerService")
+require("game/ChatService")
+require("game/MapService")
 
-print("Loading maps...")
 
-do
-    local map = {
-        ["meta"] = {
-            ["size"] = 4,
-            ["name"] = "gay",
-        },
-        ["tiles"] = {
-                    
-            [1] = { -- the layer
-                
-                
-            },
-        }
-    }
-    for x = 1, 35 do
-        map["tiles"][1][x] = {}
-        for i = 1, (16*16) do
-            
-            if (x % 2) == 0 then
-                map["tiles"][1][x][i] = math.random(1, 5)
-            elseif (x % 3 == 0) then
-                map["tiles"][1][x][i] = 2
-            else
-                map["tiles"][1][x][i] = 1
-            end
-
-        end
-    end
-
-    mapStorage.set("gay", map)
-end
 print("Creating network...")
-
-local entities = {}
-
---local Player = require("code/entities/PlayerEntity")
 
 
 -- Setting up networking
@@ -80,7 +53,7 @@ udp:setsockname('*', PORT)
 
 
 print("Ready! Awaiting connections...")
-local connectedUsers = {}
+local connections = {}
 
 local running = true
 
@@ -94,12 +67,9 @@ while running do
 
     -- if we have a message we will read it
     if data then
-        for inc, obj in pairs(connectedUsers) do
-            if obj["ip"] == msg_or_ip then
-                obj["lastmsg"] = 0
-                --print("Packet from "..obj["username"]..": ")
-            end
-        end
+        
+
+        -- otherwise these commands are for logging in a player, registering, etc.
         print(msg_or_ip.." : "..data)
 
         -- turn the data into a command and extra
@@ -108,18 +78,19 @@ while running do
 
         if cmd == "GETREV" then
             udp:sendto(string.format("%s ", tostring(REVISION)))
-        end
 
-        if cmd == "LOGIN" then
+        elseif cmd == "LOGIN" then
 
             print("Login attempt from " .. msg_or_ip .. " with credintials [".. extra.."]")
 
             local user, pass = extra:match("^(%S*) (%S*)")
-            local result, msg = loginAuth(user, pass)
+            local result, msg = login(user, pass)
 
             if result then
                 udp:sendto(string.format("%s ", "LOGINSUCCESS"), msg_or_ip, port_or_nil)
 
+                server.LoginEvent:fire()
+                
                 local usr = {
                     ["username"] = user,
                     ["ip"] = msg_or_ip,
@@ -127,8 +98,8 @@ while running do
                     ["lastmsg"] = 0,
                 }
                  
-                table.insert(connectedUsers, usr)
-
+                table.insert(connections, usr)
+                --[[
                 local map = mapStorage.get("gay")
                 do
                     local name = map["meta"]["name"]
@@ -144,47 +115,60 @@ while running do
                     print(packet)
                     udp:sendto(string.format("%s %s %s", "CHUNK", i, packet), msg_or_ip, port_or_nil)
                 end
+                ]]
             else
                 udp:sendto(string.format("%s %s", "LOGINFAIL", msg), msg_or_ip, port_or_nil)
             end
-        end
-
-        if cmd == "REGISTER" then
+        elseif cmd == "REGISTER" then
         
             local email, user, pass = extra:match("^(%S*) (%S*) (%S*)")
             
 
-            local result, msg = registerAuth(email, user, pass)    
+            local result, msg = register(email, user, pass)    
             if result then
                 udp:sendto(string.format("%s ", "REGISTERSUCCESS"), msg_or_ip, port_or_nil)
             else
                 udp:sendto(string.format("%s %s", "REGISTERFAIL", msg), msg_or_ip, port_or_nil)
             end
+        elseif cmd == "GOODBYE" then
+            server.LogoutEvent:fire()
         elseif msg_or_ip ~= "timeout" then
             print("Unknown network error: " ..tostring(msg))
+        else
+            for inc, obj in pairs(connections) do
+
+                -- We now know that we have a connection
+                if obj["ip"] == msg_or_ip then
+                    obj["lastmsg"] = 0
+                    print("Packet from "..obj["username"]..": ")
+                    server.UDPStringRecieveEvent:fire(server:GetPlayerByIP(obj["ip"]), data)
+                end
+            end
         end
         
 
     end
 
-    for inc, usr in pairs(connectedUsers) do
+    -- update time out for connected users
+    for inc, usr in pairs(connections) do
 
 
-        --udp:sendto(string.format("%s ", "ENTITY"), usr["ip"], usr["port"])
+        udp:sendto(string.format("%s ", "SERVERCHECK"), usr["ip"], usr["port"])
         
         
         usr["lastmsg"] = usr["lastmsg"] + 1
         if usr["lastmsg"] > TIMEOUT*TICKS_PER_SECOND then
             print(usr["username"].." has timed out.")
-            connectedUsers[inc] = nil
+            server.LogoutEvent:fire()
+            connections[inc] = nil
         end 
     end
 
-    for i, entity in pairs(entities) do
-        entity:step()
-    end
 
+    -- tick update info I guess...
     ticks = ticks + 1
+    delta = delta + 1
+    if delta > TICKS_PER_SECOND then delta = 1 end 
 
     if (ticks % (TICKS_PER_SECOND*UPDATE_INTERVAL) == 0) then
         print("___")
@@ -196,6 +180,9 @@ while running do
         serverReportCount = serverReportCount + 1
     end
 
+    server.ServerRunEvent:fire(delta)
+
+    -- sleep for a TPS cycle
     socket.sleep(1/TICKS_PER_SECOND)
     
 end

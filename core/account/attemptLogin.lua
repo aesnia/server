@@ -4,16 +4,16 @@
 ]]
 
 -- require libs
-local playerDB = require("code/plrdatabase")
-local sha1 = require("libs/encrypt")
+local get = require("core/account/getAccountData")
+local sha1 = require("core/libraries/encrypt")
 
 --| bool login(string username, string password)
 local function login(username, password)
     local pass = sha1(password) -- convert plaintext password into sha1-encrypted hex string
-
-    if playerDB.getPlayer(username) then -- check for user
+    local player = get(username)
+    if player then -- check for user
                 
-        if playerDB.getPlayer(username)["password"] == pass then -- check if password is correct
+        if player["password"] == pass then -- check if password is correct
             return true, nil
             
         end

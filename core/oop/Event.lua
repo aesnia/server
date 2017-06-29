@@ -3,20 +3,22 @@ Event.__index = Event
 
 function Event.initialize()
 	local self = setmetatable({}, Event)
-	self.func = function() end
+	self.connections = {}
 	return self
 end
 
 function Event:connect(givenFunction)
-	self.func = givenFunction
+	 table.insert(self.connections, givenFunction)
 end
 
-function Event:disconnect()
-	self.func = function() end
+function Event:disconnectAll()
+	self.connections = {}
 end
 
 function Event:fire(...)
-	self.func(...)
+	for inc, f in pairs(self.connections) do
+		f(...)
+	end
 end
 
 return Event
