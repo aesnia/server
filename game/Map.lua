@@ -31,6 +31,8 @@ local Map = server:CreateClass()
 
     function Map:GetChunk(x, y, layer)
 
+        local arrPos = y + (16 * (x - 1))
+        return self.Layers[layer][arrPos]
     end
 
     function Map:LoadFromFile(filename)
